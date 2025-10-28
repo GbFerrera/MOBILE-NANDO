@@ -1,34 +1,80 @@
-import { StyleSheet, View, Text, TouchableOpacity, ScrollView, ActivityIndicator, Animated, Modal, Pressable, Dimensions, Image as RNImage } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, ScrollView, ActivityIndicator, Animated, Modal, Pressable, Dimensions, Image as RNImage, Alert } from 'react-native';
 import { Scissors, Clock, ChevronRight, Sparkles, User, Calendar, X, Check, CalendarCheck, CreditCard, Image, UserCircle } from 'lucide-react-native';
 import { useState, useEffect, useRef } from 'react';
-import { getServices, Service } from '../../services/api';
+import { getServices, Service, getTeamMembers, TeamMember, getProfessionalScheduleByDate, createAppointment, CreateAppointmentData, Appointment } from '../../services/api';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Video, ResizeMode } from 'expo-av';
+import ProfileScreen from '../../components/ProfileScreen';
+import FeedScreen from '../../components/FeedScreen';
+import PlansScreen from '../../components/PlansScreen';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width } = Dimensions.get('window');
 
-const barbers = [
-  { id: 1, name: 'Carlos Silva', specialty: 'Especialista em Barba' },
-  { id: 2, name: 'João Santos', specialty: 'Cortes Modernos' },
-  { id: 3, name: 'Pedro Lima', specialty: 'Barbeiro Master' },
-  { id: 4, name: 'Rafael Costa', specialty: 'Estilista' },
-];
+// Função para traduzir cargos
+const translatePosition = (position: string): string => {
+  const translations: { [key: string]: string } = {
+    'employee': 'Barbeiro',
+    'admin': 'Administrador',
+    'manager': 'Gerente'
+  };
+  return translations[position.toLowerCase()] || position;
+};
 
-const timeSlots = [
-  '09:00', '09:30', '10:00', '10:30', '11:00', '11:30',
-  '14:00', '14:30', '15:00', '15:30', '16:00', '16:30',
-  '17:00', '17:30', '18:00'
-];
+// Mapeamento de dias da semana em inglês para português
+const dayOfWeekMap: { [key: string]: string } = {
+  'Monday': 'Segunda',
+  'Tuesday': 'Terça',
+  'Wednesday': 'Quarta',
+  'Thursday': 'Quinta',
+  'Friday': 'Sexta',
+  'Saturday': 'Sábado',
+  'Sunday': 'Domingo'
+};
+
+// Mapeamento inverso: português para inglês
+const dayOfWeekMapReverse: { [key: string]: string } = {
+  'Segunda': 'Monday',
+  'Terça': 'Tuesday',
+  'Quarta': 'Wednesday',
+  'Quinta': 'Thursday',
+  'Sexta': 'Friday',
+  'Sábado': 'Saturday',
+  'Domingo': 'Sunday'
+};
+
+// Função para gerar os próximos 7 dias da semana em português
+const getNext7Days = (): Array<{ label: string; date: Date; dayOfWeekEn: string }> => {
+  const days = [];
+  const today = new Date();
+  
+  for (let i = 0; i < 7; i++) {
+    const date = new Date(today);
+    date.setDate(today.getDate() + i);
+    const dayOfWeekEn = date.toLocaleDateString('en-US', { weekday: 'long' });
+    const dayOfWeekPt = dayOfWeekMap[dayOfWeekEn] || dayOfWeekEn;
+    
+    days.push({
+      label: dayOfWeekPt,
+      date: date,
+      dayOfWeekEn: dayOfWeekEn
+    });
+  }
+  
+  return days;
+};
 
 export default function HomeScreen() {
   const [services, setServices] = useState<Service[]>([]);
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(true);
+  const [availableTimeSlots, setAvailableTimeSlots] = useState<string[]>([]);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.9)).current;
   const videoRef = useRef<Video>(null);
   
   // Selection states
-  const [selectedBarber, setSelectedBarber] = useState<typeof barbers[0] | null>(null);
+  const [selectedBarber, setSelectedBarber] = useState<TeamMember | null>(null);
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [selectedTime, setSelectedTime] = useState<string>('');
@@ -43,6 +89,7 @@ export default function HomeScreen() {
 
   useEffect(() => {
     loadServices();
+    loadTeamMembers();
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
@@ -59,16 +106,215 @@ export default function HomeScreen() {
   }, []);
 
   const loadServices = async () => {
-    setLoading(true);
     const response = await getServices();
     if (response.data) {
       setServices(response.data);
+    }
+  };
+
+  const loadTeamMembers = async () => {
+    setLoading(true);
+    const response = await getTeamMembers();
+    if (response.data) {
+      setTeamMembers(response.data.filter(member => member.has_schedule));
     }
     setLoading(false);
   };
 
   const formatPrice = (price: string) => {
     return `R$ ${parseFloat(price).toFixed(2).replace('.', ',')}`;
+  };
+
+  const generateTimeSlots = (startTime: string, endTime: string, lunchStart: string | null, lunchEnd: string | null): string[] => {
+    const slots: string[] = [];
+    const [startHour, startMinute] = startTime.split(':').map(Number);
+    const [endHour, endMinute] = endTime.split(':').map(Number);
+    
+    let currentHour = startHour;
+    let currentMinute = startMinute;
+    
+    while (currentHour < endHour || (currentHour === endHour && currentMinute < endMinute)) {
+      const timeString = `${String(currentHour).padStart(2, '0')}:${String(currentMinute).padStart(2, '0')}`;
+      
+      // Verificar se está no horário de almoço
+      let isLunchTime = false;
+      if (lunchStart && lunchEnd) {
+        const [lunchStartHour, lunchStartMinute] = lunchStart.split(':').map(Number);
+        const [lunchEndHour, lunchEndMinute] = lunchEnd.split(':').map(Number);
+        
+        const currentTimeInMinutes = currentHour * 60 + currentMinute;
+        const lunchStartInMinutes = lunchStartHour * 60 + lunchStartMinute;
+        const lunchEndInMinutes = lunchEndHour * 60 + lunchEndMinute;
+        
+        isLunchTime = currentTimeInMinutes >= lunchStartInMinutes && currentTimeInMinutes < lunchEndInMinutes;
+      }
+      
+      if (!isLunchTime) {
+        slots.push(timeString);
+      }
+      
+      // Incrementar 30 minutos
+      currentMinute += 30;
+      if (currentMinute >= 60) {
+        currentMinute = 0;
+        currentHour++;
+      }
+    }
+    
+    return slots;
+  };
+
+  const loadProfessionalSchedule = async (professionalId: number, date: string) => {
+    const response = await getProfessionalScheduleByDate(professionalId, date);
+    
+    if (response.data) {
+      const { schedule, appointments } = response.data;
+      
+      // Verificar se o profissional trabalha neste dia
+      if (schedule && !schedule.is_day_off && schedule.start_time && schedule.end_time) {
+        // Gerar todos os slots disponíveis
+        const allSlots = generateTimeSlots(
+          schedule.start_time,
+          schedule.end_time,
+          schedule.lunch_start_time,
+          schedule.lunch_end_time
+        );
+        
+        // Filtrar slots que já estão ocupados
+        const occupiedSlots = appointments.map(apt => {
+          // Extrair apenas HH:MM do start_time (pode vir como HH:MM:SS)
+          const time = apt.start_time.substring(0, 5);
+          return time;
+        });
+        
+        const availableSlots = allSlots.filter(slot => !occupiedSlots.includes(slot));
+        setAvailableTimeSlots(availableSlots);
+      } else {
+        setAvailableTimeSlots([]);
+      }
+    } else {
+      setAvailableTimeSlots([]);
+    }
+  };
+
+  const getDayOfWeek = (dateString: string): string => {
+    const daysMap: { [key: string]: string } = {
+      'Hoje': new Date().toLocaleDateString('en-US', { weekday: 'long' }),
+      'Amanhã': new Date(Date.now() + 86400000).toLocaleDateString('en-US', { weekday: 'long' })
+    };
+    
+    if (daysMap[dateString]) {
+      return daysMap[dateString];
+    }
+    
+    // Para datas específicas no formato DD/MM
+    const [day, month] = dateString.split('/');
+    if (day && month) {
+      const year = new Date().getFullYear();
+      const date = new Date(parseInt(year.toString()), parseInt(month) - 1, parseInt(day));
+      return date.toLocaleDateString('en-US', { weekday: 'long' });
+    }
+    
+    return 'Monday'; // Fallback
+  };
+
+  const formatDateToISO = (dateString: string): string => {
+    // Se for um dia da semana em português, encontrar a data correspondente
+    if (dayOfWeekMapReverse[dateString]) {
+      const days = getNext7Days();
+      const selectedDay = days.find(d => d.label === dateString);
+      if (selectedDay) {
+        return selectedDay.date.toISOString().split('T')[0];
+      }
+    }
+    
+    // Fallback para formato antigo
+    const today = new Date();
+    const tomorrow = new Date(Date.now() + 86400000);
+    
+    if (dateString === 'Hoje') {
+      return today.toISOString().split('T')[0];
+    } else if (dateString === 'Amanhã') {
+      return tomorrow.toISOString().split('T')[0];
+    }
+    
+    // Para datas no formato DD/MM, assumir ano atual
+    const [day, month] = dateString.split('/');
+    if (day && month) {
+      const year = new Date().getFullYear();
+      return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+    }
+    
+    return today.toISOString().split('T')[0];
+  };
+
+  const handleConfirmAppointment = async () => {
+    if (!selectedBarber || !selectedService || !selectedDate || !selectedTime) {
+      Alert.alert('Erro', 'Por favor, complete todas as seleções');
+      return;
+    }
+
+    // Buscar client_id do localStorage
+    let clientId = 1; // Valor padrão
+    try {
+      const userData = await AsyncStorage.getItem('userData');
+      if (userData) {
+        const parsedData = JSON.parse(userData);
+        clientId = parsedData.id;
+      } else {
+        Alert.alert(
+          'Cadastro necessário',
+          'Você precisa criar uma conta antes de fazer um agendamento. Deseja ir para o perfil?',
+          [
+            { text: 'Cancelar', style: 'cancel' },
+            { text: 'Ir para Perfil', onPress: () => setActiveTab('perfil') }
+          ]
+        );
+        return;
+      }
+    } catch (error) {
+      console.error('Erro ao buscar dados do usuário:', error);
+    }
+
+    const appointmentData: CreateAppointmentData = {
+      client_id: clientId,
+      professional_id: selectedBarber.id,
+      appointment_date: formatDateToISO(selectedDate),
+      start_time: selectedTime,
+      status: 'pending',
+      services: [
+        {
+          service_id: selectedService.service_id,
+          quantity: 1
+        }
+      ]
+    };
+
+    setLoading(true);
+    const response = await createAppointment(appointmentData);
+    setLoading(false);
+
+    if (response.error) {
+      Alert.alert('Erro', `Erro ao criar agendamento: ${response.error}`);
+    } else {
+      Alert.alert(
+        'Agendamento Marcado com Sucesso! ✨',
+        `Seu agendamento foi confirmado:\n\n` +
+        `📅 Data: ${selectedDate}\n` +
+        `⏰ Horário: ${selectedTime}\n` +
+        `💈 Barbeiro: ${selectedBarber.name}\n` +
+        `✂️ Serviço: ${selectedService.service_name}\n\n` +
+        `Até breve!`,
+        [{ text: 'OK', style: 'default' }]
+      );
+      
+      // Limpar seleções
+      setSelectedBarber(null);
+      setSelectedService(null);
+      setSelectedDate('');
+      setSelectedTime('');
+      setAvailableTimeSlots([]);
+    }
   };
 
   return (
@@ -87,11 +333,19 @@ export default function HomeScreen() {
       {/* Overlay escuro para melhorar legibilidade */}
       <View style={styles.videoOverlay} />
       
-      <ScrollView 
-        style={styles.scrollView}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-      >
+      {/* Renderização condicional baseada na aba ativa */}
+      {activeTab === 'perfil' ? (
+        <ProfileScreen />
+      ) : activeTab === 'fotos' ? (
+        <FeedScreen />
+      ) : activeTab === 'assinaturas' ? (
+        <PlansScreen />
+      ) : (
+        <ScrollView 
+          style={styles.scrollView}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+        >
         {/* Hero Section com Gradiente */}
         <LinearGradient
           colors={['rgba(0, 0, 0, 0.4)', 'rgba(0, 0, 0, 0.7)', 'rgba(0, 0, 0, 0.9)']}
@@ -124,25 +378,14 @@ export default function HomeScreen() {
             <Text style={styles.mainTitle}>Nando Lima</Text>
             <Text style={styles.subtitle}>Barbearia Premium</Text>
             
-            <View style={styles.tagline}>
-              <Sparkles size={16} color="#D4AF37" />
-              <Text style={styles.taglineText}>Agende seu horário com estilo</Text>
-              <Sparkles size={16} color="#D4AF37" />
-            </View>
-
-            {/* Stats Cards */}
-            <View style={styles.statsContainer}>
-              <View style={styles.statCard}>
-                <Text style={styles.statNumber}>500+</Text>
-                <Text style={styles.statLabel}>Clientes</Text>
-              </View>
-              <View style={styles.statCard}>
-                <Text style={styles.statNumber}>4.9★</Text>
-                <Text style={styles.statLabel}>Avaliação</Text>
-              </View>
-              <View style={styles.statCard}>
-                <Text style={styles.statNumber}>10+</Text>
-                <Text style={styles.statLabel}>Anos</Text>
+            {/* Descrição */}
+            <View style={styles.descriptionContainer}>
+              <View style={styles.descriptionBox}>
+                <Text style={styles.descriptionText}>
+                  Agende seus horários de forma{' '}
+                  <Text style={styles.descriptionHighlight}>rápida e inteligente</Text>.{'\n'}
+                  Escolha seu profissional, serviço e horário em poucos cliques.
+                </Text>
               </View>
             </View>
           </Animated.View>
@@ -249,6 +492,7 @@ export default function HomeScreen() {
             style={styles.agendarButtonWrapper}
             activeOpacity={0.9}
             disabled={!selectedBarber || !selectedService || !selectedDate || !selectedTime}
+            onPress={handleConfirmAppointment}
           >
             <LinearGradient
               colors={
@@ -272,6 +516,7 @@ export default function HomeScreen() {
         {/* Bottom Spacing */}
         <View style={styles.bottomSpacing} />
       </ScrollView>
+      )}
 
       {/* Barber Modal */}
       <Modal
@@ -289,30 +534,41 @@ export default function HomeScreen() {
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.modalScroll}>
-              {barbers.map((barber) => (
-                <TouchableOpacity
-                  key={barber.id}
-                  style={[
-                    styles.modalItem,
-                    selectedBarber?.id === barber.id && styles.modalItemSelected
-                  ]}
-                  onPress={() => {
-                    setSelectedBarber(barber);
-                    setShowBarberModal(false);
-                  }}
-                >
-                  <View style={styles.modalItemIcon}>
-                    <User size={20} color="#D4AF37" />
-                  </View>
-                  <View style={styles.modalItemInfo}>
-                    <Text style={styles.modalItemName}>{barber.name}</Text>
-                    <Text style={styles.modalItemSubtitle}>{barber.specialty}</Text>
-                  </View>
-                  {selectedBarber?.id === barber.id && (
-                    <View style={styles.selectedCheck} />
-                  )}
-                </TouchableOpacity>
-              ))}
+              {loading ? (
+                <ActivityIndicator size="large" color="#D4AF37" style={styles.modalLoading} />
+              ) : (
+                teamMembers.map((member) => (
+                  <TouchableOpacity
+                    key={member.id}
+                    style={[
+                      styles.modalItem,
+                      selectedBarber?.id === member.id && styles.modalItemSelected
+                    ]}
+                    onPress={() => {
+                      setSelectedBarber(member);
+                      setShowBarberModal(false);
+                    }}
+                  >
+                    {member.photo_url ? (
+                      <RNImage 
+                        source={{ uri: member.photo_url }}
+                        style={styles.memberPhoto}
+                      />
+                    ) : (
+                      <View style={styles.modalItemIcon}>
+                        <User size={20} color="#D4AF37" />
+                      </View>
+                    )}
+                    <View style={styles.modalItemInfo}>
+                      <Text style={styles.modalItemName}>{member.name}</Text>
+                      <Text style={styles.modalItemSubtitle}>{translatePosition(member.position)}</Text>
+                    </View>
+                    {selectedBarber?.id === member.id && (
+                      <View style={styles.selectedCheck} />
+                    )}
+                  </TouchableOpacity>
+                ))
+              )}
             </ScrollView>
           </View>
         </View>
@@ -386,49 +642,63 @@ export default function HomeScreen() {
             </View>
             <ScrollView style={styles.modalScroll}>
               {/* Date Selection */}
-              <Text style={styles.modalSectionTitle}>Data</Text>
-              <View style={styles.dateGrid}>
-                {['Hoje', 'Amanhã', '28/10', '29/10', '30/10'].map((date) => (
-                  <TouchableOpacity
-                    key={date}
-                    style={[
-                      styles.dateButton,
-                      selectedDate === date && styles.dateButtonSelected
-                    ]}
-                    onPress={() => setSelectedDate(date)}
-                  >
-                    <Text style={[
-                      styles.dateButtonText,
-                      selectedDate === date && styles.dateButtonTextSelected
-                    ]}>{date}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              {/* Time Selection */}
-              {selectedDate && (
+              {!selectedBarber ? (
+                <Text style={styles.modalWarning}>Selecione um barbeiro primeiro</Text>
+              ) : (
                 <>
-                  <Text style={styles.modalSectionTitle}>Horário</Text>
-                  <View style={styles.timeGrid}>
-                    {timeSlots.map((time) => (
+                  <Text style={styles.modalSectionTitle}>Data</Text>
+                  <View style={styles.dateGrid}>
+                    {getNext7Days().map((day) => (
                       <TouchableOpacity
-                        key={time}
+                        key={day.label}
                         style={[
-                          styles.timeButton,
-                          selectedTime === time && styles.timeButtonSelected
+                          styles.dateButton,
+                          selectedDate === day.label && styles.dateButtonSelected
                         ]}
                         onPress={() => {
-                          setSelectedTime(time);
-                          setShowDateTimeModal(false);
+                          setSelectedDate(day.label);
+                          const dateISO = day.date.toISOString().split('T')[0];
+                          loadProfessionalSchedule(selectedBarber.id, dateISO);
                         }}
                       >
                         <Text style={[
-                          styles.timeButtonText,
-                          selectedTime === time && styles.timeButtonTextSelected
-                        ]}>{time}</Text>
+                          styles.dateButtonText,
+                          selectedDate === day.label && styles.dateButtonTextSelected
+                        ]}>{day.label}</Text>
                       </TouchableOpacity>
                     ))}
                   </View>
+
+                  {/* Time Selection */}
+                  {selectedDate && (
+                    <>
+                      <Text style={styles.modalSectionTitle}>Horário</Text>
+                      {availableTimeSlots.length === 0 ? (
+                        <Text style={styles.modalWarning}>Nenhum horário disponível para esta data</Text>
+                      ) : (
+                        <View style={styles.timeGrid}>
+                          {availableTimeSlots.map((time) => (
+                            <TouchableOpacity
+                              key={time}
+                              style={[
+                                styles.timeButton,
+                                selectedTime === time && styles.timeButtonSelected
+                              ]}
+                              onPress={() => {
+                                setSelectedTime(time);
+                                setShowDateTimeModal(false);
+                              }}
+                            >
+                              <Text style={[
+                                styles.timeButtonText,
+                                selectedTime === time && styles.timeButtonTextSelected
+                              ]}>{time}</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      )}
+                    </>
+                  )}
                 </>
               )}
             </ScrollView>
@@ -609,33 +879,36 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '500',
   },
-  statsContainer: {
-    flexDirection: 'row',
-    gap: 16,
+  descriptionContainer: {
+    marginTop: 24,
+    paddingHorizontal: 24,
     width: '100%',
-    justifyContent: 'center',
   },
-  statCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    paddingVertical: 12,
-    paddingHorizontal: 20,
+  descriptionBox: {
+    backgroundColor: 'rgba(212, 175, 55, 0.1)',
     borderRadius: 16,
-    alignItems: 'center',
-    backdropFilter: 'blur(10px)',
+    paddingVertical: 20,
+    paddingHorizontal: 24,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+    borderColor: 'rgba(212, 175, 55, 0.3)',
+    shadowColor: '#D4AF37',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  statNumber: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 4,
+  descriptionText: {
+    fontSize: 15,
+    color: 'rgba(255, 255, 255, 0.95)',
+    textAlign: 'center',
+    lineHeight: 24,
+    fontWeight: '400',
+    letterSpacing: 0.3,
   },
-  statLabel: {
-    fontSize: 11,
-    color: 'rgba(255, 255, 255, 0.8)',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
+  descriptionHighlight: {
+    color: '#D4AF37',
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
   selectionSection: {
     paddingHorizontal: 24,
@@ -812,6 +1085,19 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
+  memberPhoto: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    marginRight: 14,
+    borderWidth: 2,
+    borderColor: '#D4AF37',
+    shadowColor: '#D4AF37',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 2,
+  },
   modalItemInfo: {
     flex: 1,
   },
@@ -837,6 +1123,13 @@ const styles = StyleSheet.create({
     color: '#D4AF37',
     marginBottom: 16,
     marginTop: 12,
+  },
+  modalWarning: {
+    fontSize: 15,
+    color: '#999',
+    textAlign: 'center',
+    paddingVertical: 40,
+    paddingHorizontal: 20,
   },
   dateGrid: {
     flexDirection: 'row',
