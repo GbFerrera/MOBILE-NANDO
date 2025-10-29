@@ -25,18 +25,39 @@ export default function ProfileScreen() {
     loadUserData();
   }, []);
 
+  // Verificar dados do usuário quando o estado de registro mudar
+  useEffect(() => {
+    if (!isRegistered) {
+      // Se não está registrado, limpar todos os dados
+      setUserData(null);
+      setAppointments([]);
+    }
+  }, [isRegistered]);
+
   const loadUserData = async () => {
     try {
       const data = await AsyncStorage.getItem('userData');
+      console.log('Dados carregados do AsyncStorage:', data);
       if (data) {
         const parsedData = JSON.parse(data);
+        console.log('Dados parseados:', parsedData);
         setUserData(parsedData);
         setIsRegistered(true);
         // Carregar agendamentos do cliente
         loadAppointments(parsedData.id);
+      } else {
+        // Não há dados salvos - usuário não está logado
+        console.log('Nenhum dado de usuário encontrado - fazendo logout');
+        setUserData(null);
+        setIsRegistered(false);
+        setAppointments([]);
       }
     } catch (error) {
       console.error('Erro ao carregar dados do usuário:', error);
+      // Em caso de erro, assumir que não está logado
+      setUserData(null);
+      setIsRegistered(false);
+      setAppointments([]);
     }
   };
 
@@ -90,17 +111,37 @@ export default function ProfileScreen() {
     setLoading(false);
 
     if (response.error) {
-      Alert.alert('Erro', `Erro ao fazer login: ${response.error}`);
+      console.log('Erro de login - Status:', response.status, 'Mensagem:', response.error);
+      
+      // Verificar se é erro de credenciais inválidas
+      if (response.status === 401 || response.error.toLowerCase().includes('invalid') || 
+          response.error.toLowerCase().includes('unauthorized') || 
+          response.error.toLowerCase().includes('credenciais') ||
+          response.error.toLowerCase().includes('senha') ||
+          response.error.toLowerCase().includes('email')) {
+        Alert.alert(
+          'Credenciais Inválidas', 
+          'Email ou senha incorretos. Verifique seus dados e tente novamente.',
+          [{ text: 'OK', style: 'default' }]
+        );
+      } else {
+        Alert.alert('Erro', `Erro ao fazer login: ${response.error}`);
+      }
     } else {
       // Salvar dados no AsyncStorage
+      const userData = response.data?.user || response.data;
       const userDataToSave = {
-        id: response.data?.id || Date.now(),
-        name: response.data?.name || 'Usuário',
-        email: response.data?.email || email,
-        phone_number: response.data?.phone_number || '',
-        document: response.data?.document || '',
-        created_at: response.data?.created_at || new Date().toISOString()
+        id: userData?.id || Date.now(),
+        name: userData?.name || 'Usuário',
+        email: userData?.email || email,
+        phone_number: userData?.phone_number || '',
+        document: userData?.document || '',
+        created_at: userData?.created_at || new Date().toISOString(),
+        token: response.data?.token // Salvar o token também
       };
+
+      console.log('Dados do usuário extraídos:', userData);
+      console.log('Dados a serem salvos:', userDataToSave);
 
       try {
         await AsyncStorage.setItem('userData', JSON.stringify(userDataToSave));
@@ -196,9 +237,34 @@ export default function ProfileScreen() {
           text: 'Sair',
           style: 'destructive',
           onPress: async () => {
-            await AsyncStorage.removeItem('userData');
-            setUserData(null);
-            setIsRegistered(false);
+            console.log('Iniciando processo de logout...');
+            try {
+              // Remover dados do AsyncStorage
+              await AsyncStorage.removeItem('userData');
+              console.log('Dados removidos do AsyncStorage');
+              
+              // Limpar estados locais
+              setUserData(null);
+              setIsRegistered(false);
+              setAppointments([]);
+              
+              // Limpar campos do formulário
+              setName('');
+              setEmail('');
+              setPhoneNumber('');
+              setDocument('');
+              setPassword('');
+              setConfirmPassword('');
+              
+              // Voltar para modo login
+              setIsLoginMode(true);
+              
+              console.log('Logout realizado com sucesso - todos os estados limpos');
+              Alert.alert('Sucesso', 'Você saiu da sua conta com sucesso!');
+            } catch (error) {
+              console.error('Erro ao fazer logout:', error);
+              Alert.alert('Erro', 'Erro ao sair da conta. Tente novamente.');
+            }
           }
         }
       ]

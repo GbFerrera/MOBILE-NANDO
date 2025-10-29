@@ -89,10 +89,14 @@ export default function HomeScreen() {
   
   // Navbar state
   const [activeTab, setActiveTab] = useState('agenda');
+  
+  // User authentication state
+  const [isUserLoggedIn, setIsUserLoggedIn] = useState(false);
 
   useEffect(() => {
     loadServices();
     loadTeamMembers();
+    checkUserLoginStatus();
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
@@ -107,6 +111,25 @@ export default function HomeScreen() {
       }),
     ]).start();
   }, []);
+
+  // Verificar status de login quando voltar para a aba agenda
+  useEffect(() => {
+    if (activeTab === 'agenda') {
+      checkUserLoginStatus();
+    }
+  }, [activeTab]);
+
+  const checkUserLoginStatus = async () => {
+    try {
+      const userData = await AsyncStorage.getItem('userData');
+      const isLoggedIn = !!userData;
+      console.log('Verificando status de login:', isLoggedIn ? 'Logado' : 'Não logado');
+      setIsUserLoggedIn(isLoggedIn);
+    } catch (error) {
+      console.error('Erro ao verificar status de login:', error);
+      setIsUserLoggedIn(false);
+    }
+  };
 
   const loadServices = async () => {
     const response = await getServices();
@@ -241,31 +264,73 @@ export default function HomeScreen() {
   const handleConfirmAppointment = async () => {
     console.log('handleConfirmAppointment chamado');
     
+    // Verificar login primeiro
+    if (!isUserLoggedIn) {
+      Alert.alert(
+        'Login Necessário',
+        'Você precisa fazer login para realizar um agendamento. Deseja fazer login agora?',
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          { 
+            text: 'Fazer Login', 
+            onPress: () => setActiveTab('perfil'),
+            style: 'default'
+          }
+        ]
+      );
+      return;
+    }
+    
     if (!selectedBarber || selectedServices.length === 0 || !selectedDate || !selectedTime) {
       Alert.alert('Erro', 'Por favor, complete todas as seleções');
       return;
     }
 
-    // Buscar client_id do localStorage
-    let clientId = 1; // Valor padrão
+    // Verificar se o usuário está logado
+    let clientId = null;
     try {
       const userData = await AsyncStorage.getItem('userData');
       if (userData) {
         const parsedData = JSON.parse(userData);
         clientId = parsedData.id;
+        console.log('Usuário logado - ID:', clientId);
       } else {
         Alert.alert(
-          'Cadastro necessário',
-          'Você precisa criar uma conta antes de fazer um agendamento. Deseja ir para o perfil?',
+          'Login Necessário',
+          'Você precisa fazer login para realizar um agendamento. Deseja fazer login agora?',
           [
             { text: 'Cancelar', style: 'cancel' },
-            { text: 'Ir para Perfil', onPress: () => setActiveTab('perfil') }
+            { 
+              text: 'Fazer Login', 
+              onPress: () => setActiveTab('perfil'),
+              style: 'default'
+            }
           ]
         );
         return;
       }
     } catch (error) {
       console.error('Erro ao buscar dados do usuário:', error);
+      Alert.alert(
+        'Erro',
+        'Não foi possível verificar seus dados. Faça login novamente.',
+        [
+          { text: 'OK', onPress: () => setActiveTab('perfil') }
+        ]
+      );
+      return;
+    }
+
+    // Verificar se o clientId é válido
+    if (!clientId) {
+      Alert.alert(
+        'Erro de Autenticação',
+        'Dados de usuário inválidos. Faça login novamente.',
+        [
+          { text: 'OK', onPress: () => setActiveTab('perfil') }
+        ]
+      );
+      return;
     }
 
     const appointmentData: CreateAppointmentData = {
@@ -510,12 +575,12 @@ export default function HomeScreen() {
           <TouchableOpacity 
             style={styles.agendarButtonWrapper}
             activeOpacity={0.9}
-            disabled={!selectedBarber || selectedServices.length === 0 || !selectedDate || !selectedTime}
+            disabled={!isUserLoggedIn || !selectedBarber || selectedServices.length === 0 || !selectedDate || !selectedTime}
             onPress={handleConfirmAppointment}
           >
             <LinearGradient
               colors={
-                (!selectedBarber || selectedServices.length === 0 || !selectedDate || !selectedTime)
+                (!isUserLoggedIn || !selectedBarber || selectedServices.length === 0 || !selectedDate || !selectedTime)
                   ? ['#4a4a4a', '#2a2a2a']
                   : ['#D4AF37', '#FFD700', '#D4AF37']
               }
@@ -524,9 +589,11 @@ export default function HomeScreen() {
               style={styles.agendarButton}
             >
               <Text style={styles.agendarButtonText}>
-                {(!selectedBarber || selectedServices.length === 0 || !selectedDate || !selectedTime)
+                {!isUserLoggedIn
+                  ? 'Faça Login para Agendar ✨'
+                  : (!selectedBarber || selectedServices.length === 0 || !selectedDate || !selectedTime)
                   ? 'Complete as seleções'
-                  : 'Confirmar Agendamento '}
+                  : 'Confirmar Agendamento ✨'}
               </Text>
             </LinearGradient>
           </TouchableOpacity>
@@ -710,7 +777,6 @@ export default function HomeScreen() {
                 <Text style={styles.modalWarning}>Selecione um barbeiro primeiro</Text>
               ) : (
                 <>
-                  <Text style={styles.modalSectionTitle}>Selecione a Data</Text>
                   <View style={styles.calendarContainer}>
                     {(() => {
                       const today = new Date();
