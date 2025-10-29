@@ -75,9 +75,12 @@ export default function HomeScreen() {
   
   // Selection states
   const [selectedBarber, setSelectedBarber] = useState<TeamMember | null>(null);
-  const [selectedService, setSelectedService] = useState<Service | null>(null);
+  const [selectedServices, setSelectedServices] = useState<Service[]>([]);
   const [selectedDate, setSelectedDate] = useState<string>('');
+  const [selectedDateISO, setSelectedDateISO] = useState<string>('');
   const [selectedTime, setSelectedTime] = useState<string>('');
+  const [currentMonth, setCurrentMonth] = useState<number>(new Date().getMonth());
+  const [currentYear, setCurrentYear] = useState<number>(new Date().getFullYear());
   
   // Modal states
   const [showBarberModal, setShowBarberModal] = useState(false);
@@ -219,37 +222,26 @@ export default function HomeScreen() {
   };
 
   const formatDateToISO = (dateString: string): string => {
-    // Se for um dia da semana em português, encontrar a data correspondente
-    if (dayOfWeekMapReverse[dateString]) {
-      const days = getNext7Days();
-      const selectedDay = days.find(d => d.label === dateString);
-      if (selectedDay) {
-        return selectedDay.date.toISOString().split('T')[0];
-      }
+    // Se já temos o ISO armazenado, usar ele
+    if (selectedDateISO) {
+      return selectedDateISO;
     }
     
-    // Fallback para formato antigo
-    const today = new Date();
-    const tomorrow = new Date(Date.now() + 86400000);
-    
-    if (dateString === 'Hoje') {
-      return today.toISOString().split('T')[0];
-    } else if (dateString === 'Amanhã') {
-      return tomorrow.toISOString().split('T')[0];
-    }
-    
-    // Para datas no formato DD/MM, assumir ano atual
-    const [day, month] = dateString.split('/');
-    if (day && month) {
-      const year = new Date().getFullYear();
+    // Para datas no formato DD/MM/YYYY
+    const parts = dateString.split('/');
+    if (parts.length === 3) {
+      const [day, month, year] = parts;
       return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
     }
     
-    return today.toISOString().split('T')[0];
+    // Fallback
+    return new Date().toISOString().split('T')[0];
   };
 
   const handleConfirmAppointment = async () => {
-    if (!selectedBarber || !selectedService || !selectedDate || !selectedTime) {
+    console.log('handleConfirmAppointment chamado');
+    
+    if (!selectedBarber || selectedServices.length === 0 || !selectedDate || !selectedTime) {
       Alert.alert('Erro', 'Por favor, complete todas as seleções');
       return;
     }
@@ -282,39 +274,58 @@ export default function HomeScreen() {
       appointment_date: formatDateToISO(selectedDate),
       start_time: selectedTime,
       status: 'pending',
-      services: [
-        {
-          service_id: selectedService.service_id,
-          quantity: 1
-        }
-      ]
+      services: selectedServices.map(service => ({
+        service_id: service.service_id,
+        quantity: 1
+      }))
     };
 
+    console.log('Enviando agendamento:', appointmentData);
+    
     setLoading(true);
     const response = await createAppointment(appointmentData);
     setLoading(false);
 
+    console.log('Resposta da API:', response);
+
     if (response.error) {
+      console.log('Erro ao criar agendamento:', response.error);
       Alert.alert('Erro', `Erro ao criar agendamento: ${response.error}`);
-    } else {
-      Alert.alert(
-        'Agendamento Marcado com Sucesso! ✨',
-        `Seu agendamento foi confirmado:\n\n` +
-        `📅 Data: ${selectedDate}\n` +
-        `⏰ Horário: ${selectedTime}\n` +
-        `💈 Barbeiro: ${selectedBarber.name}\n` +
-        `✂️ Serviço: ${selectedService.service_name}\n\n` +
-        `Até breve!`,
-        [{ text: 'OK', style: 'default' }]
-      );
-      
-      // Limpar seleções
-      setSelectedBarber(null);
-      setSelectedService(null);
-      setSelectedDate('');
-      setSelectedTime('');
-      setAvailableTimeSlots([]);
+      return;
     }
+    
+    console.log('Agendamento criado com sucesso!');
+    
+    // Sucesso - preparar dados para o alerta
+    const servicesText = selectedServices.map(s => s.service_name).join(', ');
+    const dateText = selectedDate;
+    const timeText = selectedTime;
+    const barberName = selectedBarber.name;
+    
+    // Limpar seleções ANTES do alerta
+    setSelectedBarber(null);
+    setSelectedServices([]);
+    setSelectedDate('');
+    setSelectedDateISO('');
+    setSelectedTime('');
+    setAvailableTimeSlots([]);
+    
+    // Mostrar alerta e navegar
+    Alert.alert(
+      'Agendamento Confirmado! ✨',
+      `Seu agendamento foi realizado com sucesso:\n\n` +
+      `📅 Data: ${dateText}\n` +
+      `⏰ Horário: ${timeText}\n` +
+      `💈 Barbeiro: ${barberName}\n` +
+      `✂️ Serviços: ${servicesText}\n\n` +
+      `Você pode visualizar seus agendamentos na aba Perfil.`,
+      [{ 
+        text: 'Ver Agendamentos', 
+        onPress: () => {
+          setActiveTab('perfil');
+        }
+      }]
+    );
   };
 
   return (
@@ -425,14 +436,20 @@ export default function HomeScreen() {
             </LinearGradient>
           </TouchableOpacity>
 
-          {/* Selecionar Serviço */}
+          {/* Selecionar Serviços */}
           <TouchableOpacity 
-            style={[styles.glassCard, selectedService && styles.glassCardSelected]}
-            onPress={() => setShowServiceModal(true)}
+            style={[styles.glassCard, selectedServices.length > 0 && styles.glassCardSelected]}
+            onPress={() => {
+              if (!selectedBarber) {
+                Alert.alert('Atenção', 'Por favor, selecione um profissional primeiro');
+                return;
+              }
+              setShowServiceModal(true);
+            }}
             activeOpacity={0.8}
           >
             <LinearGradient
-              colors={selectedService ? ['rgba(212, 175, 55, 0.15)', 'rgba(255, 215, 0, 0.15)'] : ['rgba(255, 255, 255, 0.08)', 'rgba(255, 255, 255, 0.05)']}
+              colors={selectedServices.length > 0 ? ['rgba(212, 175, 55, 0.15)', 'rgba(255, 215, 0, 0.15)'] : ['rgba(255, 255, 255, 0.08)', 'rgba(255, 255, 255, 0.05)']}
               style={styles.glassCardGradient}
             >
               <View style={styles.cardContent}>
@@ -444,13 +461,15 @@ export default function HomeScreen() {
                     <Scissors size={22} color="#000" />
                   </LinearGradient>
                   <View style={styles.cardInfo}>
-                    <Text style={styles.cardLabel}>Serviço</Text>
+                    <Text style={styles.cardLabel}>Serviços</Text>
                     <Text style={styles.cardValue}>
-                      {selectedService ? selectedService.service_name : 'Escolher serviço'}
+                      {selectedServices.length > 0 
+                        ? `${selectedServices.length} ${selectedServices.length === 1 ? 'serviço' : 'serviços'} selecionado${selectedServices.length === 1 ? '' : 's'}`
+                        : 'Escolher serviços'}
                     </Text>
                   </View>
                 </View>
-                {selectedService && <Check size={20} color="#D4AF37" />}
+                {selectedServices.length > 0 && <Check size={20} color="#D4AF37" />}
               </View>
             </LinearGradient>
           </TouchableOpacity>
@@ -491,12 +510,12 @@ export default function HomeScreen() {
           <TouchableOpacity 
             style={styles.agendarButtonWrapper}
             activeOpacity={0.9}
-            disabled={!selectedBarber || !selectedService || !selectedDate || !selectedTime}
+            disabled={!selectedBarber || selectedServices.length === 0 || !selectedDate || !selectedTime}
             onPress={handleConfirmAppointment}
           >
             <LinearGradient
               colors={
-                (!selectedBarber || !selectedService || !selectedDate || !selectedTime)
+                (!selectedBarber || selectedServices.length === 0 || !selectedDate || !selectedTime)
                   ? ['#4a4a4a', '#2a2a2a']
                   : ['#D4AF37', '#FFD700', '#D4AF37']
               }
@@ -505,9 +524,9 @@ export default function HomeScreen() {
               style={styles.agendarButton}
             >
               <Text style={styles.agendarButtonText}>
-                {(!selectedBarber || !selectedService || !selectedDate || !selectedTime)
+                {(!selectedBarber || selectedServices.length === 0 || !selectedDate || !selectedTime)
                   ? 'Complete as seleções'
-                  : 'Confirmar Agendamento ✨'}
+                  : 'Confirmar Agendamento '}
               </Text>
             </LinearGradient>
           </TouchableOpacity>
@@ -537,18 +556,20 @@ export default function HomeScreen() {
               {loading ? (
                 <ActivityIndicator size="large" color="#D4AF37" style={styles.modalLoading} />
               ) : (
-                teamMembers.map((member) => (
-                  <TouchableOpacity
-                    key={member.id}
-                    style={[
-                      styles.modalItem,
-                      selectedBarber?.id === member.id && styles.modalItemSelected
-                    ]}
-                    onPress={() => {
-                      setSelectedBarber(member);
-                      setShowBarberModal(false);
-                    }}
-                  >
+                teamMembers
+                  .filter(member => member.services && member.services.length > 0)
+                  .map((member) => (
+                    <TouchableOpacity
+                      key={member.id}
+                      style={[
+                        styles.modalItem,
+                        selectedBarber?.id === member.id && styles.modalItemSelected
+                      ]}
+                      onPress={() => {
+                        setSelectedBarber(member);
+                        setShowBarberModal(false);
+                      }}
+                    >
                     {member.photo_url ? (
                       <RNImage 
                         source={{ uri: member.photo_url }}
@@ -592,33 +613,76 @@ export default function HomeScreen() {
             <ScrollView style={styles.modalScroll}>
               {loading ? (
                 <ActivityIndicator size="large" color="#D4AF37" style={styles.modalLoading} />
+              ) : !selectedBarber ? (
+                <View style={styles.emptyServiceState}>
+                  <Text style={styles.emptyServiceText}>Selecione um profissional primeiro</Text>
+                </View>
+              ) : selectedBarber.services.length === 0 ? (
+                <View style={styles.emptyServiceState}>
+                  <Text style={styles.emptyServiceText}>Este profissional não possui serviços disponíveis</Text>
+                </View>
               ) : (
-                services.map((service) => (
-                  <TouchableOpacity
-                    key={service.service_id}
-                    style={[
-                      styles.modalItem,
-                      selectedService?.service_id === service.service_id && styles.modalItemSelected
-                    ]}
-                    onPress={() => {
-                      setSelectedService(service);
-                      setShowServiceModal(false);
-                    }}
-                  >
-                    <View style={styles.modalItemIcon}>
-                      <Scissors size={20} color="#D4AF37" />
-                    </View>
-                    <View style={styles.modalItemInfo}>
-                      <Text style={styles.modalItemName}>{service.service_name}</Text>
-                      <Text style={styles.modalItemSubtitle}>
-                        {service.service_duration} min • {formatPrice(service.service_price)}
-                      </Text>
-                    </View>
-                    {selectedService?.service_id === service.service_id && (
-                      <View style={styles.selectedCheck} />
-                    )}
-                  </TouchableOpacity>
-                ))
+                <>
+                  {selectedBarber.services.map((service) => {
+                    const isSelected = selectedServices.some(s => s.service_id === service.service_id);
+                    return (
+                      <TouchableOpacity
+                        key={service.service_id}
+                        style={[
+                          styles.modalItem,
+                          isSelected && styles.modalItemSelected
+                        ]}
+                        onPress={() => {
+                          if (isSelected) {
+                            // Remover serviço
+                            setSelectedServices(prev => prev.filter(s => s.service_id !== service.service_id));
+                          } else {
+                            // Adicionar serviço - converter TeamServiceDetail para Service
+                            const serviceToAdd: Service = {
+                              service_id: service.service_id,
+                              service_name: service.service_name,
+                              service_description: service.description,
+                              service_price: service.price,
+                              service_duration: service.duration,
+                              created_at: '',
+                              updated_at: ''
+                            };
+                            setSelectedServices(prev => [...prev, serviceToAdd]);
+                          }
+                        }}
+                      >
+                        <View style={styles.modalItemIcon}>
+                          <Scissors size={20} color="#D4AF37" />
+                        </View>
+                        <View style={styles.modalItemInfo}>
+                          <Text style={styles.modalItemName}>{service.service_name}</Text>
+                          <Text style={styles.modalItemSubtitle}>
+                            {service.duration} min • R$ {parseFloat(service.price).toFixed(2).replace('.', ',')}
+                          </Text>
+                        </View>
+                        {isSelected && (
+                          <View style={styles.selectedCheck} />
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                  
+                  {selectedServices.length > 0 && (
+                    <TouchableOpacity
+                      style={styles.confirmServicesButton}
+                      onPress={() => setShowServiceModal(false)}
+                    >
+                      <LinearGradient
+                        colors={['#D4AF37', '#FFD700']}
+                        style={styles.confirmServicesGradient}
+                      >
+                        <Text style={styles.confirmServicesText}>
+                          Confirmar ({selectedServices.length})
+                        </Text>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  )}
+                </>
               )}
             </ScrollView>
           </View>
@@ -646,27 +710,106 @@ export default function HomeScreen() {
                 <Text style={styles.modalWarning}>Selecione um barbeiro primeiro</Text>
               ) : (
                 <>
-                  <Text style={styles.modalSectionTitle}>Data</Text>
-                  <View style={styles.dateGrid}>
-                    {getNext7Days().map((day) => (
-                      <TouchableOpacity
-                        key={day.label}
-                        style={[
-                          styles.dateButton,
-                          selectedDate === day.label && styles.dateButtonSelected
-                        ]}
-                        onPress={() => {
-                          setSelectedDate(day.label);
-                          const dateISO = day.date.toISOString().split('T')[0];
-                          loadProfessionalSchedule(selectedBarber.id, dateISO);
-                        }}
-                      >
-                        <Text style={[
-                          styles.dateButtonText,
-                          selectedDate === day.label && styles.dateButtonTextSelected
-                        ]}>{day.label}</Text>
-                      </TouchableOpacity>
-                    ))}
+                  <Text style={styles.modalSectionTitle}>Selecione a Data</Text>
+                  <View style={styles.calendarContainer}>
+                    {(() => {
+                      const today = new Date();
+                      const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+                      const firstDayOfMonth = new Date(currentYear, currentMonth, 1).getDay();
+                      
+                      const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+                                         'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+                      const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+                      
+                      const days = [];
+                      
+                      // Adicionar dias vazios antes do primeiro dia
+                      for (let i = 0; i < firstDayOfMonth; i++) {
+                        days.push(<View key={`empty-${i}`} style={styles.calendarDay} />);
+                      }
+                      
+                      // Adicionar dias do mês
+                      for (let day = 1; day <= daysInMonth; day++) {
+                        const date = new Date(currentYear, currentMonth, day);
+                        const dateISO = date.toISOString().split('T')[0];
+                        const isPast = date < new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                        const isSelected = selectedDateISO === dateISO;
+                        
+                        days.push(
+                          <TouchableOpacity
+                            key={day}
+                            style={[
+                              styles.calendarDay,
+                              isSelected && styles.calendarDaySelected,
+                              isPast && styles.calendarDayDisabled
+                            ]}
+                            onPress={() => {
+                              if (!isPast) {
+                                setSelectedDateISO(dateISO);
+                                setSelectedDate(date.toLocaleDateString('pt-BR'));
+                                loadProfessionalSchedule(selectedBarber.id, dateISO);
+                              }
+                            }}
+                            disabled={isPast}
+                          >
+                            <Text style={[
+                              styles.calendarDayText,
+                              isSelected && styles.calendarDayTextSelected,
+                              isPast && styles.calendarDayTextDisabled
+                            ]}>{day}</Text>
+                          </TouchableOpacity>
+                        );
+                      }
+                      
+                      const handlePrevMonth = () => {
+                        if (currentMonth === 0) {
+                          setCurrentMonth(11);
+                          setCurrentYear(currentYear - 1);
+                        } else {
+                          setCurrentMonth(currentMonth - 1);
+                        }
+                      };
+                      
+                      const handleNextMonth = () => {
+                        if (currentMonth === 11) {
+                          setCurrentMonth(0);
+                          setCurrentYear(currentYear + 1);
+                        } else {
+                          setCurrentMonth(currentMonth + 1);
+                        }
+                      };
+                      
+                      const isCurrentMonth = currentMonth === today.getMonth() && currentYear === today.getFullYear();
+                      
+                      return (
+                        <>
+                          <View style={styles.calendarHeader}>
+                            <TouchableOpacity 
+                              onPress={handlePrevMonth}
+                              disabled={isCurrentMonth}
+                              style={[styles.calendarNavButton, isCurrentMonth && styles.calendarNavButtonDisabled]}
+                            >
+                              <Text style={[styles.calendarNavText, isCurrentMonth && styles.calendarNavTextDisabled]}>‹</Text>
+                            </TouchableOpacity>
+                            <Text style={styles.calendarMonth}>{monthNames[currentMonth]} {currentYear}</Text>
+                            <TouchableOpacity 
+                              onPress={handleNextMonth}
+                              style={styles.calendarNavButton}
+                            >
+                              <Text style={styles.calendarNavText}>›</Text>
+                            </TouchableOpacity>
+                          </View>
+                          <View style={styles.calendarWeekDays}>
+                            {dayNames.map(name => (
+                              <Text key={name} style={styles.calendarWeekDayText}>{name}</Text>
+                            ))}
+                          </View>
+                          <View style={styles.calendarGrid}>
+                            {days}
+                          </View>
+                        </>
+                      );
+                    })()}
                   </View>
 
                   {/* Time Selection */}
@@ -1117,6 +1260,32 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: '#D4AF37',
   },
+  confirmServicesButton: {
+    marginTop: 16,
+    marginBottom: 8,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  confirmServicesGradient: {
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmServicesText: {
+    color: '#000',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  emptyServiceState: {
+    paddingVertical: 60,
+    alignItems: 'center',
+  },
+  emptyServiceText: {
+    color: '#999',
+    fontSize: 16,
+    textAlign: 'center',
+    paddingHorizontal: 24,
+  },
   modalSectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
@@ -1135,7 +1304,84 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 12,
-    marginBottom: 28,
+    marginBottom: 24,
+  },
+  calendarContainer: {
+    backgroundColor: '#1a1a1a',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+  },
+  calendarHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  calendarNavButton: {
+    padding: 8,
+    width: 40,
+    alignItems: 'center',
+  },
+  calendarNavButtonDisabled: {
+    opacity: 0.3,
+  },
+  calendarNavText: {
+    fontSize: 28,
+    color: '#D4AF37',
+    fontWeight: 'bold',
+  },
+  calendarNavTextDisabled: {
+    color: '#666',
+  },
+  calendarMonth: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#D4AF37',
+    textAlign: 'center',
+    flex: 1,
+  },
+  calendarWeekDays: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 8,
+  },
+  calendarWeekDayText: {
+    fontSize: 12,
+    color: '#999',
+    fontWeight: '600',
+    width: 40,
+    textAlign: 'center',
+  },
+  calendarGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  calendarDay: {
+    width: '14.28%',
+    aspectRatio: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  calendarDaySelected: {
+    backgroundColor: '#D4AF37',
+    borderRadius: 8,
+  },
+  calendarDayDisabled: {
+    opacity: 0.3,
+  },
+  calendarDayText: {
+    fontSize: 14,
+    color: '#fff',
+    fontWeight: '500',
+  },
+  calendarDayTextSelected: {
+    color: '#000',
+    fontWeight: 'bold',
+  },
+  calendarDayTextDisabled: {
+    color: '#666',
   },
   dateButton: {
     paddingVertical: 14,

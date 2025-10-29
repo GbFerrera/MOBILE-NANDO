@@ -1,4 +1,4 @@
-const API_BASE_URL = 'http://localhost:3131';
+const API_BASE_URL = 'https://api.linkcallendar.com';git 
 
 interface ApiResponse<T> {
   data?: T;
@@ -16,6 +16,15 @@ export interface Service {
   updated_at: string;
 }
 
+export interface TeamServiceDetail {
+  team_service_id: number;
+  service_id: number;
+  service_name: string;
+  description: string;
+  price: string;
+  duration: number;
+}
+
 export interface TeamMember {
   id: number;
   name: string;
@@ -26,6 +35,7 @@ export interface TeamMember {
   updated_at: string;
   photo_url: string;
   has_schedule: boolean;
+  services: TeamServiceDetail[];
 }
 
 export interface Schedule {
@@ -68,6 +78,7 @@ export interface Appointment {
   id: number;
   company_id: number;
   professional_id: number;
+  professional_name?: string;
   client_id: number;
   appointment_date: string;
   start_time: string;
