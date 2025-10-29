@@ -46,23 +46,14 @@ export default function ProfileScreen() {
     setLoadingAppointments(false);
     
     if (response.data) {
-      // Filtrar apenas agendamentos de hoje para frente
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      
-      const futureAppointments = response.data.filter(apt => {
-        const aptDate = new Date(apt.appointment_date);
-        return aptDate >= today;
-      });
-      
-      // Ordenar por data
-      futureAppointments.sort((a, b) => {
+      // Ordenar por data (mais recentes primeiro)
+      const sortedAppointments = response.data.sort((a, b) => {
         const dateA = new Date(a.appointment_date + ' ' + a.start_time);
         const dateB = new Date(b.appointment_date + ' ' + b.start_time);
-        return dateA.getTime() - dateB.getTime();
+        return dateB.getTime() - dateA.getTime(); // Ordem decrescente (mais recente primeiro)
       });
       
-      setAppointments(futureAppointments);
+      setAppointments(sortedAppointments);
     }
   };
 
@@ -272,27 +263,37 @@ export default function ProfileScreen() {
           ) : appointments.length === 0 ? (
             <View style={styles.emptyState}>
               <Calendar size={48} color="#666" />
-              <Text style={styles.emptyStateText}>Nenhum agendamento futuro</Text>
+              <Text style={styles.emptyStateText}>Nenhum agendamento encontrado</Text>
             </View>
           ) : (
-            appointments.map((appointment) => (
-              <View key={appointment.id} style={styles.appointmentCard}>
-                <View style={styles.appointmentHeader}>
-                  <View style={styles.appointmentDateBadge}>
-                    <Calendar size={16} color="#D4AF37" />
-                    <Text style={styles.appointmentDate}>{formatDate(appointment.appointment_date)}</Text>
+            appointments.map((appointment) => {
+              const appointmentDateTime = new Date(appointment.appointment_date + ' ' + appointment.start_time);
+              const isPast = appointmentDateTime < new Date();
+              
+              return (
+                <View key={appointment.id} style={[styles.appointmentCard, isPast && styles.appointmentCardPast]}>
+                  <View style={styles.appointmentHeader}>
+                    <View style={styles.appointmentDateBadge}>
+                      <Calendar size={16} color={isPast ? '#999' : '#D4AF37'} />
+                      <Text style={[styles.appointmentDate, isPast && styles.appointmentDatePast]}>
+                        {formatDate(appointment.appointment_date)}
+                      </Text>
+                    </View>
+                    <View style={styles.appointmentTimeBadge}>
+                      <Clock size={16} color={isPast ? '#999' : '#D4AF37'} />
+                      <Text style={[styles.appointmentTime, isPast && styles.appointmentTimePast]}>
+                        {formatTime(appointment.start_time)}
+                      </Text>
+                    </View>
                   </View>
-                  <View style={styles.appointmentTimeBadge}>
-                    <Clock size={16} color="#D4AF37" />
-                    <Text style={styles.appointmentTime}>{formatTime(appointment.start_time)}</Text>
-                  </View>
-                </View>
                 
                 <View style={styles.appointmentBody}>
                   <View style={styles.appointmentRow}>
                     <UserCircle size={18} color="#999" />
                     <Text style={styles.appointmentLabel}>Profissional:</Text>
-                    <Text style={styles.appointmentValue}>Profissional #{appointment.professional_id}</Text>
+                    <Text style={styles.appointmentValue}>
+                      {appointment.professional_name || `Profissional #${appointment.professional_id}`}
+                    </Text>
                   </View>
                   
                   {appointment.services && appointment.services.length > 0 && (
@@ -303,16 +304,27 @@ export default function ProfileScreen() {
                     </View>
                   )}
                   
-                  <View style={styles.statusBadge}>
-                    <Text style={styles.statusText}>
+                  <View style={[
+                    styles.statusBadge,
+                    appointment.status === 'confirmed' && styles.statusBadgeConfirmed,
+                    appointment.status === 'pending' && styles.statusBadgePending,
+                    appointment.status === 'canceled' && styles.statusBadgeCanceled
+                  ]}>
+                    <Text style={[
+                      styles.statusText,
+                      appointment.status === 'confirmed' && styles.statusTextConfirmed,
+                      appointment.status === 'pending' && styles.statusTextPending,
+                      appointment.status === 'canceled' && styles.statusTextCanceled
+                    ]}>
                       {appointment.status === 'pending' ? '⏳ Pendente' : 
-                       appointment.status === 'confirmed' ? '✓ Confirmado' :
+                       appointment.status === 'confirmed' ? '✓ Agendamento Confirmado' :
                        appointment.status === 'canceled' ? '✕ Cancelado' : '✓ Concluído'}
                     </Text>
                   </View>
                 </View>
               </View>
-            ))
+              );
+            })
           )}
         </View>
       </ScrollView>
@@ -701,6 +713,21 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginTop: 4,
   },
+  statusBadgeConfirmed: {
+    backgroundColor: 'rgba(76, 175, 80, 0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(76, 175, 80, 0.5)',
+  },
+  statusBadgePending: {
+    backgroundColor: 'rgba(255, 193, 7, 0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 193, 7, 0.5)',
+  },
+  statusBadgeCanceled: {
+    backgroundColor: 'rgba(244, 67, 54, 0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(244, 67, 54, 0.5)',
+  },
   statusText: {
     color: '#D4AF37',
     fontSize: 12,
@@ -722,5 +749,25 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     textDecorationLine: 'underline',
+  },
+  statusTextConfirmed: {
+    color: '#4CAF50',
+    fontWeight: 'bold',
+  },
+  statusTextPending: {
+    color: '#FFC107',
+  },
+  statusTextCanceled: {
+    color: '#F44336',
+  },
+  appointmentCardPast: {
+    opacity: 0.6,
+    borderColor: '#2a2a2a',
+  },
+  appointmentDatePast: {
+    color: '#999',
+  },
+  appointmentTimePast: {
+    color: '#999',
   },
 });
