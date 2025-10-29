@@ -112,9 +112,9 @@ export default function HomeScreen() {
     ]).start();
   }, []);
 
-  // Verificar status de login quando voltar para a aba agenda
+  // Verificar status de login quando voltar para a aba agenda ou quando a aba perfil estiver ativa
   useEffect(() => {
-    if (activeTab === 'agenda') {
+    if (activeTab === 'agenda' || activeTab === 'perfil') {
       checkUserLoginStatus();
     }
   }, [activeTab]);
@@ -190,6 +190,31 @@ export default function HomeScreen() {
     return slots;
   };
 
+  // Função auxiliar para gerar todos os slots ocupados por um agendamento
+  const generateOccupiedSlotsForAppointment = (startTime: string, endTime: string): string[] => {
+    const occupiedSlots: string[] = [];
+    const [startHour, startMinute] = startTime.split(':').map(Number);
+    const [endHour, endMinute] = endTime.split(':').map(Number);
+    
+    let currentHour = startHour;
+    let currentMinute = startMinute;
+    
+    // Gerar slots de 30 em 30 minutos entre start_time e end_time
+    while (currentHour < endHour || (currentHour === endHour && currentMinute < endMinute)) {
+      const timeString = `${String(currentHour).padStart(2, '0')}:${String(currentMinute).padStart(2, '0')}`;
+      occupiedSlots.push(timeString);
+      
+      // Incrementar 30 minutos
+      currentMinute += 30;
+      if (currentMinute >= 60) {
+        currentMinute = 0;
+        currentHour++;
+      }
+    }
+    
+    return occupiedSlots;
+  };
+
   const loadProfessionalSchedule = async (professionalId: number, date: string) => {
     const response = await getProfessionalScheduleByDate(professionalId, date);
     
@@ -206,12 +231,18 @@ export default function HomeScreen() {
           schedule.lunch_end_time
         );
         
-        // Filtrar slots que já estão ocupados
-        const occupiedSlots = appointments.map(apt => {
-          // Extrair apenas HH:MM do start_time (pode vir como HH:MM:SS)
-          const time = apt.start_time.substring(0, 5);
-          return time;
-        });
+        // Filtrar slots que já estão ocupados ou são intervalos livres (status 'free')
+        const occupiedSlots: string[] = [];
+        
+        appointments
+          .filter(apt => apt.status !== 'canceled') // Excluir agendamentos cancelados
+          .forEach(apt => {
+            // Gerar todos os slots ocupados entre start_time e end_time
+            const startTime = apt.start_time.substring(0, 5); // HH:MM
+            const endTime = apt.end_time.substring(0, 5); // HH:MM
+            const appointmentSlots = generateOccupiedSlotsForAppointment(startTime, endTime);
+            occupiedSlots.push(...appointmentSlots);
+          });
         
         const availableSlots = allSlots.filter(slot => !occupiedSlots.includes(slot));
         setAvailableTimeSlots(availableSlots);
@@ -411,7 +442,7 @@ export default function HomeScreen() {
       
       {/* Renderização condicional baseada na aba ativa */}
       {activeTab === 'perfil' ? (
-        <ProfileScreen />
+        <ProfileScreen onLogout={checkUserLoginStatus} />
       ) : activeTab === 'fotos' ? (
         <FeedScreen />
       ) : activeTab === 'assinaturas' ? (
@@ -634,6 +665,7 @@ export default function HomeScreen() {
                       ]}
                       onPress={() => {
                         setSelectedBarber(member);
+                        setSelectedServices([]); // Limpar serviços ao trocar barbeiro
                         setShowBarberModal(false);
                       }}
                     >

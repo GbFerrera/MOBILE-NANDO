@@ -1,8 +1,8 @@
 import { StyleSheet, View, Text, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Alert } from 'react-native';
-import { UserCircle, Mail, Phone, Lock, FileText, Calendar, Clock, Scissors } from 'lucide-react-native';
+import { UserCircle, Mail, Phone, Lock, FileText, Calendar, Clock, Scissors, Check, X } from 'lucide-react-native';
 import { useState, useEffect } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
-import { createClient, CreateClientData, loginClient, LoginData, getClientAppointments, Appointment } from '../services/api';
+import { createClient, CreateClientData, loginClient, LoginData, getClientAppointments, Appointment, updateAppointmentStatus } from '../services/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function ProfileScreen() {
@@ -227,6 +227,88 @@ export default function ProfileScreen() {
     }
   };
 
+  const handleConfirmAppointment = async (appointmentId: number) => {
+    Alert.alert(
+      'Confirmar Agendamento',
+      'Deseja confirmar este agendamento?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Confirmar',
+          style: 'default',
+          onPress: async () => {
+            console.log('[handleConfirmAppointment] Iniciando confirmação do agendamento:', appointmentId);
+            setLoadingAppointments(true);
+            
+            try {
+              const response = await updateAppointmentStatus(appointmentId, 'confirmed');
+              setLoadingAppointments(false);
+              
+              console.log('[handleConfirmAppointment] Resposta recebida:', response);
+              
+              if (response.error) {
+                console.error('[handleConfirmAppointment] Erro na resposta:', response);
+                Alert.alert('Erro', `Erro ao confirmar agendamento: ${response.error}\n\nStatus: ${response.status || 'N/A'}`);
+              } else {
+                console.log('[handleConfirmAppointment] Sucesso!');
+                Alert.alert('Sucesso! ✅', 'Agendamento confirmado com sucesso!');
+                // Recarregar agendamentos
+                if (userData?.id) {
+                  loadAppointments(userData.id);
+                }
+              }
+            } catch (error: any) {
+              setLoadingAppointments(false);
+              console.error('[handleConfirmAppointment] Erro não capturado:', error);
+              Alert.alert('Erro', `Erro inesperado: ${error?.message || error}`);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const handleCancelAppointment = async (appointmentId: number) => {
+    Alert.alert(
+      'Cancelar Agendamento',
+      'Deseja realmente cancelar este agendamento? Esta ação não pode ser desfeita.',
+      [
+        { text: 'Não', style: 'cancel' },
+        {
+          text: 'Sim, Cancelar',
+          style: 'destructive',
+          onPress: async () => {
+            console.log('[handleCancelAppointment] Iniciando cancelamento do agendamento:', appointmentId);
+            setLoadingAppointments(true);
+            
+            try {
+              const response = await updateAppointmentStatus(appointmentId, 'canceled', 'client');
+              setLoadingAppointments(false);
+              
+              console.log('[handleCancelAppointment] Resposta recebida:', response);
+              
+              if (response.error) {
+                console.error('[handleCancelAppointment] Erro na resposta:', response);
+                Alert.alert('Erro', `Erro ao cancelar agendamento: ${response.error}\n\nStatus: ${response.status || 'N/A'}`);
+              } else {
+                console.log('[handleCancelAppointment] Sucesso!');
+                Alert.alert('Agendamento Cancelado', 'Seu agendamento foi cancelado com sucesso.');
+                // Recarregar agendamentos
+                if (userData?.id) {
+                  loadAppointments(userData.id);
+                }
+              }
+            } catch (error: any) {
+              setLoadingAppointments(false);
+              console.error('[handleCancelAppointment] Erro não capturado:', error);
+              Alert.alert('Erro', `Erro inesperado: ${error?.message || error}`);
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const handleLogout = async () => {
     Alert.alert(
       'Sair',
@@ -387,6 +469,39 @@ export default function ProfileScreen() {
                        appointment.status === 'canceled' ? '✕ Cancelado' : '✓ Concluído'}
                     </Text>
                   </View>
+                  
+                  {/* Botões de ação para agendamentos pendentes e futuros */}
+                  {appointment.status === 'pending' && !isPast && (
+                    <View style={styles.actionButtons}>
+                      <TouchableOpacity
+                        style={styles.confirmButton}
+                        onPress={() => handleConfirmAppointment(appointment.id)}
+                        activeOpacity={0.8}
+                      >
+                        <LinearGradient
+                          colors={['#4CAF50', '#45a049']}
+                          style={styles.actionButtonGradient}
+                        >
+                          <Check size={16} color="#fff" />
+                          <Text style={styles.confirmButtonText}>Confirmar</Text>
+                        </LinearGradient>
+                      </TouchableOpacity>
+                      
+                      <TouchableOpacity
+                        style={styles.cancelButton}
+                        onPress={() => handleCancelAppointment(appointment.id)}
+                        activeOpacity={0.8}
+                      >
+                        <LinearGradient
+                          colors={['#f44336', '#d32f2f']}
+                          style={styles.actionButtonGradient}
+                        >
+                          <X size={16} color="#fff" />
+                          <Text style={styles.cancelButtonText}>Cancelar</Text>
+                        </LinearGradient>
+                      </TouchableOpacity>
+                    </View>
+                  )}
                 </View>
               </View>
               );
@@ -835,5 +950,39 @@ const styles = StyleSheet.create({
   },
   appointmentTimePast: {
     color: '#999',
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 16,
+    gap: 12,
+  },
+  confirmButton: {
+    flex: 1,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  cancelButton: {
+    flex: 1,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  actionButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    gap: 6,
+  },
+  confirmButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  cancelButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

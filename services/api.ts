@@ -160,11 +160,16 @@ export interface Plan {
 
 export async function makeRequest<T>(
   endpoint: string,
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET',
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' = 'GET',
   data?: any,
   headers?: Record<string, string>
 ): Promise<ApiResponse<T>> {
   try {
+    console.log(`[API] Fazendo requisição ${method} para ${API_BASE_URL}${endpoint}`);
+    if (data) {
+      console.log('[API] Dados enviados:', data);
+    }
+    
     const config: RequestInit = {
       method,
       headers: {
@@ -178,17 +183,52 @@ export async function makeRequest<T>(
     }
 
     const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
+    console.log(`[API] Status da resposta: ${response.status}`);
+    
+    // Verificar se a resposta é JSON válido
+    const contentType = response.headers.get('content-type');
+    console.log('[API] Content-Type da resposta:', contentType);
+    
+    if (!contentType || !contentType.includes('application/json')) {
+      const textResponse = await response.text();
+      console.error('[API] Resposta não é JSON:', textResponse.substring(0, 200));
+      return {
+        error: `Servidor retornou ${contentType || 'conteúdo inválido'} ao invés de JSON. Verifique se a API está funcionando corretamente.`,
+        status: response.status,
+      };
+    }
+    
     const responseData = await response.json();
+    console.log('[API] Dados da resposta:', responseData);
 
     if (!response.ok) {
+      console.error('[API] Erro na resposta:', responseData);
       return {
-        error: responseData.message || 'Erro na requisição',
+        error: responseData.message || responseData.error || 'Erro na requisição',
         status: response.status,
       };
     }
 
     return { data: responseData, status: response.status };
   } catch (error: any) {
+    console.error('[API] Erro na requisição:', error);
+    
+    // Verificar se é erro de parsing JSON
+    if (error.message && error.message.includes('JSON Parse error')) {
+      return {
+        error: 'Servidor retornou dados inválidos. A API pode estar fora do ar ou retornando HTML ao invés de JSON.',
+        status: 500,
+      };
+    }
+    
+    // Verificar se é erro de rede
+    if (error.message === 'Network request failed' || error.message.includes('fetch')) {
+      return {
+        error: 'Não foi possível conectar ao servidor. Verifique se a API está rodando em ' + API_BASE_URL,
+        status: 0,
+      };
+    }
+    
     return {
       error: error.message || 'Erro desconhecido',
       status: 500,
@@ -260,4 +300,23 @@ export async function getClientAppointments(clientId: number): Promise<ApiRespon
   return makeRequest<Appointment[]>(`/appointments?client_id=${clientId}`, 'GET', undefined, {
     'company_id': '1',
   });
+}
+
+export async function updateAppointmentStatus(appointmentId: number, status: 'confirmed' | 'canceled', canceledBy?: 'client'): Promise<ApiResponse<any>> {
+  console.log('[updateAppointmentStatus] Iniciando atualização:', {
+    appointmentId,
+    status,
+    canceledBy
+  });
+  
+  // Baseado na análise do backend, a rota correta é PATCH /appointments/{id}/status
+  const url = canceledBy ? `/appointments/${appointmentId}/status?canceledBy=${canceledBy}` : `/appointments/${appointmentId}/status`;
+  console.log('[updateAppointmentStatus] URL construída:', url);
+  
+  const result = await makeRequest<any>(url, 'PATCH', { status }, {
+    'company_id': '1',
+  });
+  
+  console.log('[updateAppointmentStatus] Resultado:', result);
+  return result;
 }
