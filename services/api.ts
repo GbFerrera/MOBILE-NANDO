@@ -1,4 +1,4 @@
-const API_BASE_URL = 'http://localhost:3131';
+const API_BASE_URL = 'http://api.linkcallendar.com';
 
 interface ApiResponse<T> {
   data?: T;
@@ -110,6 +110,11 @@ export interface CreateClientData {
   password: string;
 }
 
+export interface LoginData {
+  email: string;
+  password: string;
+}
+
 export interface ClientPhoto {
   client_id: number;
   name: string;
@@ -216,6 +221,15 @@ export async function createClient(clientData: CreateClientData): Promise<ApiRes
     'company_id': '1',
   });
   console.log('Resposta da API:', result);
+  return result;
+}
+
+export async function loginClient(loginData: LoginData): Promise<ApiResponse<any>> {
+  console.log('loginClient chamado com:', loginData);
+  const result = await makeRequest<any>('/sessions/clients', 'POST', loginData, {
+    'company_id': '1',
+  });
+  console.log('Resposta da API login:', result);
   return result;
 }
 

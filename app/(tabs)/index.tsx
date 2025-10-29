@@ -1,13 +1,13 @@
-import { StyleSheet, View, Text, TouchableOpacity, ScrollView, ActivityIndicator, Animated, Modal, Pressable, Dimensions, Image as RNImage, Alert } from 'react-native';
-import { Scissors, Clock, ChevronRight, Sparkles, User, Calendar, X, Check, CalendarCheck, CreditCard, Image, UserCircle } from 'lucide-react-native';
-import { useState, useEffect, useRef } from 'react';
-import { getServices, Service, getTeamMembers, TeamMember, getProfessionalScheduleByDate, createAppointment, CreateAppointmentData, Appointment } from '../../services/api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ResizeMode, Video } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Video, ResizeMode } from 'expo-av';
-import ProfileScreen from '../../components/ProfileScreen';
+import { Calendar, CalendarCheck, Check, CreditCard, Image, Scissors, User, UserCircle, X } from 'lucide-react-native';
+import { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, Animated, Dimensions, Modal, Image as RNImage, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import FeedScreen from '../../components/FeedScreen';
 import PlansScreen from '../../components/PlansScreen';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import ProfileScreen from '../../components/ProfileScreen';
+import { createAppointment, CreateAppointmentData, getProfessionalScheduleByDate, getServices, getTeamMembers, Service, TeamMember } from '../../services/api';
 
 const { width } = Dimensions.get('window');
 

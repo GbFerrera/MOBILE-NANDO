@@ -2,7 +2,7 @@ import { StyleSheet, View, Text, TextInput, TouchableOpacity, ScrollView, Activi
 import { UserCircle, Mail, Phone, Lock, FileText, Calendar, Clock, Scissors } from 'lucide-react-native';
 import { useState, useEffect } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
-import { createClient, CreateClientData, getClientAppointments, Appointment } from '../services/api';
+import { createClient, CreateClientData, loginClient, LoginData, getClientAppointments, Appointment } from '../services/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function ProfileScreen() {
@@ -11,6 +11,7 @@ export default function ProfileScreen() {
   const [userData, setUserData] = useState<any>(null);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loadingAppointments, setLoadingAppointments] = useState(false);
+  const [isLoginMode, setIsLoginMode] = useState(true); // Toggle between login and register
 
   // Form states
   const [name, setName] = useState('');
@@ -76,6 +77,58 @@ export default function ProfileScreen() {
 
   const formatTime = (timeString: string): string => {
     return timeString.substring(0, 5);
+  };
+
+  const handleLogin = async () => {
+    console.log('handleLogin chamado');
+    console.log('Dados:', { email, password });
+    
+    // Validações
+    if (!email || !password) {
+      Alert.alert('Erro', 'Por favor, preencha todos os campos');
+      return;
+    }
+
+    const loginData: LoginData = {
+      email,
+      password
+    };
+
+    setLoading(true);
+    const response = await loginClient(loginData);
+    setLoading(false);
+
+    if (response.error) {
+      Alert.alert('Erro', `Erro ao fazer login: ${response.error}`);
+    } else {
+      // Salvar dados no AsyncStorage
+      const userDataToSave = {
+        id: response.data?.id || Date.now(),
+        name: response.data?.name || 'Usuário',
+        email: response.data?.email || email,
+        phone_number: response.data?.phone_number || '',
+        document: response.data?.document || '',
+        created_at: response.data?.created_at || new Date().toISOString()
+      };
+
+      try {
+        await AsyncStorage.setItem('userData', JSON.stringify(userDataToSave));
+        setUserData(userDataToSave);
+        setIsRegistered(true);
+        Alert.alert('Sucesso! ✨', 'Login realizado com sucesso!');
+        
+        // Limpar campos
+        setEmail('');
+        setPassword('');
+        
+        // Carregar agendamentos
+        if (userDataToSave.id) {
+          loadAppointments(userDataToSave.id);
+        }
+      } catch (error) {
+        console.error('Erro ao salvar dados:', error);
+      }
+    }
   };
 
   const handleRegister = async () => {
@@ -280,23 +333,27 @@ export default function ProfileScreen() {
             <UserCircle size={60} color="#000" />
           </LinearGradient>
         </View>
-        <Text style={styles.headerTitle}>Criar Conta</Text>
-        <Text style={styles.headerSubtitle}>Preencha seus dados para começar</Text>
+        <Text style={styles.headerTitle}>{isLoginMode ? 'Entrar' : 'Criar Conta'}</Text>
+        <Text style={styles.headerSubtitle}>
+          {isLoginMode ? 'Acesse sua conta existente' : 'Preencha seus dados para começar'}
+        </Text>
       </LinearGradient>
 
       <View style={styles.formSection}>
-        <View style={styles.inputContainer}>
-          <View style={styles.inputIcon}>
-            <UserCircle size={20} color="#D4AF37" />
+        {!isLoginMode && (
+          <View style={styles.inputContainer}>
+            <View style={styles.inputIcon}>
+              <UserCircle size={20} color="#D4AF37" />
+            </View>
+            <TextInput
+              style={styles.input}
+              placeholder="Nome completo"
+              placeholderTextColor="#666"
+              value={name}
+              onChangeText={setName}
+            />
           </View>
-          <TextInput
-            style={styles.input}
-            placeholder="Nome completo"
-            placeholderTextColor="#666"
-            value={name}
-            onChangeText={setName}
-          />
-        </View>
+        )}
 
         <View style={styles.inputContainer}>
           <View style={styles.inputIcon}>
@@ -313,33 +370,37 @@ export default function ProfileScreen() {
           />
         </View>
 
-        <View style={styles.inputContainer}>
-          <View style={styles.inputIcon}>
-            <Phone size={20} color="#D4AF37" />
+        {!isLoginMode && (
+          <View style={styles.inputContainer}>
+            <View style={styles.inputIcon}>
+              <Phone size={20} color="#D4AF37" />
+            </View>
+            <TextInput
+              style={styles.input}
+              placeholder="Telefone"
+              placeholderTextColor="#666"
+              value={phoneNumber}
+              onChangeText={setPhoneNumber}
+              keyboardType="phone-pad"
+            />
           </View>
-          <TextInput
-            style={styles.input}
-            placeholder="Telefone"
-            placeholderTextColor="#666"
-            value={phoneNumber}
-            onChangeText={setPhoneNumber}
-            keyboardType="phone-pad"
-          />
-        </View>
+        )}
 
-        <View style={styles.inputContainer}>
-          <View style={styles.inputIcon}>
-            <FileText size={20} color="#D4AF37" />
+        {!isLoginMode && (
+          <View style={styles.inputContainer}>
+            <View style={styles.inputIcon}>
+              <FileText size={20} color="#D4AF37" />
+            </View>
+            <TextInput
+              style={styles.input}
+              placeholder="CPF (opcional)"
+              placeholderTextColor="#666"
+              value={document}
+              onChangeText={setDocument}
+              keyboardType="numeric"
+            />
           </View>
-          <TextInput
-            style={styles.input}
-            placeholder="CPF (opcional)"
-            placeholderTextColor="#666"
-            value={document}
-            onChangeText={setDocument}
-            keyboardType="numeric"
-          />
-        </View>
+        )}
 
         <View style={styles.inputContainer}>
           <View style={styles.inputIcon}>
@@ -355,23 +416,25 @@ export default function ProfileScreen() {
           />
         </View>
 
-        <View style={styles.inputContainer}>
-          <View style={styles.inputIcon}>
-            <Lock size={20} color="#D4AF37" />
+        {!isLoginMode && (
+          <View style={styles.inputContainer}>
+            <View style={styles.inputIcon}>
+              <Lock size={20} color="#D4AF37" />
+            </View>
+            <TextInput
+              style={styles.input}
+              placeholder="Confirmar senha"
+              placeholderTextColor="#666"
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              secureTextEntry
+            />
           </View>
-          <TextInput
-            style={styles.input}
-            placeholder="Confirmar senha"
-            placeholderTextColor="#666"
-            value={confirmPassword}
-            onChangeText={setConfirmPassword}
-            secureTextEntry
-          />
-        </View>
+        )}
 
         <View style={styles.registerButtonWrapper}>
           <TouchableOpacity
-            onPress={handleRegister}
+            onPress={isLoginMode ? handleLogin : handleRegister}
             disabled={loading}
             activeOpacity={0.8}
           >
@@ -384,9 +447,35 @@ export default function ProfileScreen() {
               {loading ? (
                 <ActivityIndicator color="#000" />
               ) : (
-                <Text style={styles.registerButtonText}>Criar Conta ✨</Text>
+                <Text style={styles.registerButtonText}>
+                  {isLoginMode ? 'Entrar ✨' : 'Criar Conta ✨'}
+                </Text>
               )}
             </LinearGradient>
+          </TouchableOpacity>
+        </View>
+
+        {/* Toggle between login and register */}
+        <View style={styles.toggleContainer}>
+          <Text style={styles.toggleText}>
+            {isLoginMode ? 'Não tem uma conta?' : 'Já tem uma conta?'}
+          </Text>
+          <TouchableOpacity
+            onPress={() => {
+              setIsLoginMode(!isLoginMode);
+              // Clear form fields when switching
+              setName('');
+              setEmail('');
+              setPhoneNumber('');
+              setDocument('');
+              setPassword('');
+              setConfirmPassword('');
+            }}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.toggleLink}>
+              {isLoginMode ? 'Criar conta' : 'Fazer login'}
+            </Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -400,11 +489,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#0a0a0a',
   },
   scrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
     paddingBottom: 100,
   },
   header: {
-    paddingTop: 60,
-    paddingBottom: 40,
+    paddingTop: 20,
+    paddingBottom: 30,
     paddingHorizontal: 24,
     alignItems: 'center',
   },
@@ -445,7 +536,7 @@ const styles = StyleSheet.create({
   },
   formSection: {
     paddingHorizontal: 24,
-    paddingTop: 24,
+    paddingTop: 16,
   },
   inputContainer: {
     flexDirection: 'row',
@@ -614,5 +705,22 @@ const styles = StyleSheet.create({
     color: '#D4AF37',
     fontSize: 12,
     fontWeight: '600',
+  },
+  toggleContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 24,
+    gap: 8,
+  },
+  toggleText: {
+    color: '#999',
+    fontSize: 14,
+  },
+  toggleLink: {
+    color: '#D4AF37',
+    fontSize: 14,
+    fontWeight: '600',
+    textDecorationLine: 'underline',
   },
 });
