@@ -69,8 +69,14 @@ export default function ProfileScreen() {
     if (response.data) {
       // Ordenar por data (mais recentes primeiro)
       const sortedAppointments = response.data.sort((a, b) => {
-        const dateA = new Date(a.appointment_date + ' ' + a.start_time);
-        const dateB = new Date(b.appointment_date + ' ' + b.start_time);
+        // Criar datas locais para evitar problemas de fuso horário
+        const [yearA, monthA, dayA] = a.appointment_date.split('-').map(Number);
+        const [yearB, monthB, dayB] = b.appointment_date.split('-').map(Number);
+        const [hourA, minuteA] = a.start_time.split(':').map(Number);
+        const [hourB, minuteB] = b.start_time.split(':').map(Number);
+        
+        const dateA = new Date(yearA, monthA - 1, dayA, hourA, minuteA);
+        const dateB = new Date(yearB, monthB - 1, dayB, hourB, minuteB);
         return dateB.getTime() - dateA.getTime(); // Ordem decrescente (mais recente primeiro)
       });
       
@@ -79,7 +85,9 @@ export default function ProfileScreen() {
   };
 
   const formatDate = (dateString: string): string => {
-    const date = new Date(dateString);
+    // Dividir a string de data para evitar problemas de fuso horário
+    const [year, month, day] = dateString.split('-').map(Number);
+    const date = new Date(year, month - 1, day); // month - 1 porque os meses em JS são 0-indexados
     return date.toLocaleDateString('pt-BR', { 
       day: '2-digit', 
       month: 'long',
@@ -415,7 +423,10 @@ export default function ProfileScreen() {
             </View>
           ) : (
             appointments.map((appointment) => {
-              const appointmentDateTime = new Date(appointment.appointment_date + ' ' + appointment.start_time);
+              // Criar data local para evitar problemas de fuso horário
+              const [year, month, day] = appointment.appointment_date.split('-').map(Number);
+              const [hour, minute] = appointment.start_time.split(':').map(Number);
+              const appointmentDateTime = new Date(year, month - 1, day, hour, minute);
               const isPast = appointmentDateTime < new Date();
               
               return (

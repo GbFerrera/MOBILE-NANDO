@@ -292,32 +292,42 @@ export default function HomeScreen() {
     return new Date().toISOString().split('T')[0];
   };
 
-  const handleConfirmAppointment = async () => {
-    console.log('handleConfirmAppointment chamado');
-    
-    // Verificar login primeiro
+  const handleAppointmentButtonPress = () => {
+    // Se não estiver logado, redirecionar para perfil
     if (!isUserLoggedIn) {
-      Alert.alert(
-        'Login Necessário',
-        'Você precisa fazer login para realizar um agendamento. Deseja fazer login agora?',
-        [
-          { text: 'Cancelar', style: 'cancel' },
-          { 
-            text: 'Fazer Login', 
-            onPress: () => setActiveTab('perfil'),
-            style: 'default'
-          }
-        ]
-      );
+      setActiveTab('perfil');
       return;
     }
+    
+    // Se estiver logado, prosseguir com o agendamento
+    handleConfirmAppointment();
+  };
+
+  // Funções específicas para fechar modais
+  const closeBarberModal = () => {
+    console.log('Fechando modal de barbeiro');
+    setShowBarberModal(false);
+  };
+
+  const closeServiceModal = () => {
+    console.log('Fechando modal de serviços');
+    setShowServiceModal(false);
+  };
+
+  const closeDateTimeModal = () => {
+    console.log('Fechando modal de data e hora');
+    setShowDateTimeModal(false);
+  };
+
+  const handleConfirmAppointment = async () => {
+    console.log('handleConfirmAppointment chamado');
     
     if (!selectedBarber || selectedServices.length === 0 || !selectedDate || !selectedTime) {
       Alert.alert('Erro', 'Por favor, complete todas as seleções');
       return;
     }
 
-    // Verificar se o usuário está logado
+    // Obter dados do usuário logado
     let clientId = null;
     try {
       const userData = await AsyncStorage.getItem('userData');
@@ -325,42 +335,16 @@ export default function HomeScreen() {
         const parsedData = JSON.parse(userData);
         clientId = parsedData.id;
         console.log('Usuário logado - ID:', clientId);
-      } else {
-        Alert.alert(
-          'Login Necessário',
-          'Você precisa fazer login para realizar um agendamento. Deseja fazer login agora?',
-          [
-            { text: 'Cancelar', style: 'cancel' },
-            { 
-              text: 'Fazer Login', 
-              onPress: () => setActiveTab('perfil'),
-              style: 'default'
-            }
-          ]
-        );
-        return;
       }
     } catch (error) {
       console.error('Erro ao buscar dados do usuário:', error);
-      Alert.alert(
-        'Erro',
-        'Não foi possível verificar seus dados. Faça login novamente.',
-        [
-          { text: 'OK', onPress: () => setActiveTab('perfil') }
-        ]
-      );
+      Alert.alert('Erro', 'Erro ao verificar dados do usuário');
       return;
     }
 
     // Verificar se o clientId é válido
     if (!clientId) {
-      Alert.alert(
-        'Erro de Autenticação',
-        'Dados de usuário inválidos. Faça login novamente.',
-        [
-          { text: 'OK', onPress: () => setActiveTab('perfil') }
-        ]
-      );
+      Alert.alert('Erro', 'Dados de usuário inválidos');
       return;
     }
 
@@ -606,14 +590,16 @@ export default function HomeScreen() {
           <TouchableOpacity 
             style={styles.agendarButtonWrapper}
             activeOpacity={0.9}
-            disabled={!isUserLoggedIn || !selectedBarber || selectedServices.length === 0 || !selectedDate || !selectedTime}
-            onPress={handleConfirmAppointment}
+            disabled={isUserLoggedIn && (!selectedBarber || selectedServices.length === 0 || !selectedDate || !selectedTime)}
+            onPress={handleAppointmentButtonPress}
           >
             <LinearGradient
               colors={
-                (!isUserLoggedIn || !selectedBarber || selectedServices.length === 0 || !selectedDate || !selectedTime)
-                  ? ['#4a4a4a', '#2a2a2a']
-                  : ['#D4AF37', '#FFD700', '#D4AF37']
+                !isUserLoggedIn
+                  ? ['#D4AF37', '#FFD700', '#D4AF37'] // Dourado quando não logado (clicável)
+                  : (!selectedBarber || selectedServices.length === 0 || !selectedDate || !selectedTime)
+                  ? ['#4a4a4a', '#2a2a2a'] // Cinza quando logado mas incompleto
+                  : ['#D4AF37', '#FFD700', '#D4AF37'] // Dourado quando tudo OK
               }
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 0 }}
@@ -640,13 +626,26 @@ export default function HomeScreen() {
         visible={showBarberModal}
         transparent
         animationType="slide"
-        onRequestClose={() => setShowBarberModal(false)}
+        onRequestClose={closeBarberModal}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+        <TouchableOpacity 
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={closeBarberModal}
+        >
+          <TouchableOpacity 
+            style={styles.modalContent}
+            activeOpacity={1}
+            onPress={(e) => e.stopPropagation()}
+          >
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Selecionar Barbeiro</Text>
-              <TouchableOpacity onPress={() => setShowBarberModal(false)}>
+              <TouchableOpacity 
+                onPress={closeBarberModal}
+                style={styles.closeButton}
+                activeOpacity={0.7}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
                 <X size={24} color="#D4AF37" />
               </TouchableOpacity>
             </View>
@@ -666,7 +665,7 @@ export default function HomeScreen() {
                       onPress={() => {
                         setSelectedBarber(member);
                         setSelectedServices([]); // Limpar serviços ao trocar barbeiro
-                        setShowBarberModal(false);
+                        closeBarberModal();
                       }}
                     >
                     {member.photo_url ? (
@@ -690,8 +689,8 @@ export default function HomeScreen() {
                 ))
               )}
             </ScrollView>
-          </View>
-        </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
 
       {/* Service Modal */}
@@ -699,13 +698,26 @@ export default function HomeScreen() {
         visible={showServiceModal}
         transparent
         animationType="slide"
-        onRequestClose={() => setShowServiceModal(false)}
+        onRequestClose={closeServiceModal}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+        <TouchableOpacity 
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={closeServiceModal}
+        >
+          <TouchableOpacity 
+            style={styles.modalContent}
+            activeOpacity={1}
+            onPress={(e) => e.stopPropagation()}
+          >
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Selecionar Serviço</Text>
-              <TouchableOpacity onPress={() => setShowServiceModal(false)}>
+              <TouchableOpacity 
+                onPress={closeServiceModal}
+                style={styles.closeButton}
+                activeOpacity={0.7}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
                 <X size={24} color="#D4AF37" />
               </TouchableOpacity>
             </View>
@@ -769,7 +781,7 @@ export default function HomeScreen() {
                   {selectedServices.length > 0 && (
                     <TouchableOpacity
                       style={styles.confirmServicesButton}
-                      onPress={() => setShowServiceModal(false)}
+                      onPress={closeServiceModal}
                     >
                       <LinearGradient
                         colors={['#D4AF37', '#FFD700']}
@@ -784,8 +796,8 @@ export default function HomeScreen() {
                 </>
               )}
             </ScrollView>
-          </View>
-        </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
 
       {/* Date & Time Modal */}
@@ -793,13 +805,26 @@ export default function HomeScreen() {
         visible={showDateTimeModal}
         transparent
         animationType="slide"
-        onRequestClose={() => setShowDateTimeModal(false)}
+        onRequestClose={closeDateTimeModal}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+        <TouchableOpacity 
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={closeDateTimeModal}
+        >
+          <TouchableOpacity 
+            style={styles.modalContent}
+            activeOpacity={1}
+            onPress={(e) => e.stopPropagation()}
+          >
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Selecionar Data e Hora</Text>
-              <TouchableOpacity onPress={() => setShowDateTimeModal(false)}>
+              <TouchableOpacity 
+                onPress={closeDateTimeModal}
+                style={styles.closeButton}
+                activeOpacity={0.7}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
                 <X size={24} color="#D4AF37" />
               </TouchableOpacity>
             </View>
@@ -927,7 +952,7 @@ export default function HomeScreen() {
                               ]}
                               onPress={() => {
                                 setSelectedTime(time);
-                                setShowDateTimeModal(false);
+                                closeDateTimeModal();
                               }}
                             >
                               <Text style={[
@@ -943,8 +968,8 @@ export default function HomeScreen() {
                 </>
               )}
             </ScrollView>
-          </View>
-        </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
 
       {/* Bottom Navbar */}
@@ -956,7 +981,7 @@ export default function HomeScreen() {
         >
           <View style={[styles.navIconContainer, activeTab === 'agenda' && styles.navIconActive]}>
             <CalendarCheck 
-              size={20} 
+              size={22} 
               color={activeTab === 'agenda' ? '#000' : '#999'} 
               strokeWidth={2}
             />
@@ -973,7 +998,7 @@ export default function HomeScreen() {
         >
           <View style={[styles.navIconContainer, activeTab === 'assinaturas' && styles.navIconActive]}>
             <CreditCard 
-              size={20} 
+              size={22} 
               color={activeTab === 'assinaturas' ? '#000' : '#999'} 
               strokeWidth={2}
             />
@@ -990,7 +1015,7 @@ export default function HomeScreen() {
         >
           <View style={[styles.navIconContainer, activeTab === 'fotos' && styles.navIconActive]}>
             <Image 
-              size={20} 
+              size={22} 
               color={activeTab === 'fotos' ? '#000' : '#999'} 
               strokeWidth={2}
             />
@@ -1007,7 +1032,7 @@ export default function HomeScreen() {
         >
           <View style={[styles.navIconContainer, activeTab === 'perfil' && styles.navIconActive]}>
             <UserCircle 
-              size={20} 
+              size={22} 
               color={activeTab === 'perfil' ? '#000' : '#999'} 
               strokeWidth={2}
             />
@@ -1536,7 +1561,7 @@ const styles = StyleSheet.create({
     right: 0,
     flexDirection: 'row',
     backgroundColor: '#1a1a1a',
-    paddingVertical: 8,
+    paddingVertical: 12,
     paddingHorizontal: 8,
     borderTopWidth: 1,
     borderTopColor: '#D4AF37',
@@ -1550,15 +1575,15 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 4,
+    paddingVertical: 6,
   },
   navIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 2,
+    marginBottom: 3,
   },
   navIconActive: {
     backgroundColor: '#D4AF37',
@@ -1577,5 +1602,11 @@ const styles = StyleSheet.create({
   navLabelActive: {
     color: '#D4AF37',
     fontWeight: 'bold',
+  },
+  closeButton: {
+    padding: 8,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
